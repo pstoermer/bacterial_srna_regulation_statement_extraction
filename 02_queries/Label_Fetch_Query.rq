@@ -1,0 +1,4 @@
+SELECT DISTINCT * WHERE {
+  wd:#QID# rdfs:label ?label .
+  FILTER (langMatches( lang(?label), "EN" ) )
+}

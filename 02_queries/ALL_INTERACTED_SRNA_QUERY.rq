@@ -1,0 +1,32 @@
+SELECT DISTINCT ?rna ?rnaLabel ?altLabel ?propLabel ?targetLabel ?quote ?PMCID WHERE {
+  {
+    SELECT DISTINCT ?rna ?rnaLabel ?prop ?propLabel ?target ?targetLabel WHERE {
+      ?rna wdt:P703 wd:#QID#.
+      {
+        { ?rna wdt:P31|wdt:P279 wd:Q11053. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q427087. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q423832. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q201448. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q285904. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q424665. }
+        UNION { ?rna wdt:P31|wdt:P279 wd:Q1012651. }
+      }
+      {
+        ?rna wdt:P128|wdt:P3773|wdt:P3776|wdt:P3771|wdt:P3774|wdt:P3777|wdt:P3772|wdt:P3775|wdt:P3778|wdt:P3779|wdt:P3781|wdt:P3780 ?target.
+      }
+      ?rna ?propvar ?target.
+      ?prop wikibase:directClaim ?propvar .
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en".}
+    }
+  }
+  {
+    {?rna p:P128|p:P3777|p:P3773|p:P3776|p:P3771|p:P3774|p:P3772|p:P3775|p:P3778|p:P3779|p:P3781|p:P3780 ?statement.
+      ?statement ps:P128|ps:P3777|ps:P3773|ps:P3776|ps:P3771|ps:P3774|ps:P3772|ps:P3775|ps:P3778|ps:P3779|ps:P3781|ps:P3780 ?target.}
+  }
+  ?statement prov:wasDerivedFrom ?refnode.
+  ?refnode   pr:P1683 ?quote.
+  ?refnode   pr:P932 ?PMCID.
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en".
+                           ?rna rdfs:label ?rnaLabel.
+                           ?rna skos:altLabel ?altLabel. }
+}
