@@ -13,11 +13,7 @@ import metapub
 from Bio import Entrez
 import xml.etree.ElementTree as ET
 
-# Always provide your email address
-EMAIL = "pia.stoermer@smail.th-koeln.de"
-Entrez.email = EMAIL
-
-import spacy 
+import spacy
 import textract
 
 def append_gene_data(df:pd.DataFrame, quote: str, genes: List[str], rows_to_add: List[dict], srna_names: Optional[List[str]] = None) -> List[dict]:
