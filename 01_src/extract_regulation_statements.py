@@ -183,7 +183,7 @@ class StatementExtractor:
         return preprocessed_text.strip()
 
     @staticmethod
-    def _tokenize_sentences(fulltext: str) -> str:
+    def _tokenize_sentences(fulltext: str) -> List[str]:
         """
         Tokenize full texts into sentences, preserving specific patterns.
 
@@ -581,22 +581,19 @@ class StatementExtractor:
         return srna_set.isdisjoint(gene_set)
 
     @staticmethod
-    def clean_entities(entities_list):
-        List[str]
+    def clean_entities(entities_list: List[str]) -> List[str]:
+        """
+        Cleans a list of entities by removing short entities and those matching specific patterns.
 
-    ) -> List[str]:
-    """
-    Cleans a list of entities by removing short entities and those matching specific patterns.
+        Parameters:
+        - entities_list (List[str]): A list of entity names.
 
-    Parameters:
-    - entities_list (List[str]): A list of entity names.
-
-    Returns:
-    List[str]: A cleaned list of entities.
-    """
-    cleaned_list = [entity for entity in entities_list if
-                    len(entity) > 2 and not re.search(r'(ABSTRACT|CITATION|FIGURE[A-Z]?|TABLE[A-Z]?)', entity)]
-    return cleaned_list
+        Returns:
+        List[str]: A cleaned list of entities.
+        """
+        cleaned_list = [entity for entity in entities_list if
+                        len(entity) > 2 and not re.search(r'(ABSTRACT|CITATION|FIGURE[A-Z]?|TABLE[A-Z]?)', entity)]
+        return cleaned_list
 
     @staticmethod
     def _refine_entities(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -647,76 +644,73 @@ class StatementExtractor:
 
     def query_entities_for_qids(self, entities: List[str], entity_type: str) -> Dict[str, str]:
         """
-       Queries Wikidata for QIDs of a list of entities based on their type.
+        Queries Wikidata for QIDs of a list of entities based on their type.
 
-       Parameters:
-       - entities (List[str]): A list of entity names to query.
-       - entity_type (str): The type of entities to query ('srna' or 'gene').
+        Parameters:
+        - entities (List[str]): A list of entity names to query.
+        - entity_type (str): The type of entities to query ('srna' or 'gene').
 
-       Returns:
-       Dict[str, str]: A dictionary mapping entity names to their corresponding QIDs.
-       """
+        Returns:
+        Dict[str, str]: A dictionary mapping entity names to their corresponding QIDs.
+        """
+        qid_map = {}
+        for entity in tqdm(entities):
+            qid = self._query_wikidata(entity, entity_type)  # Your existing query function
+            if qid:
+                qid_map[entity] = qid
+        return qid_map
 
-    qid_map = {}
-    for entity in tqdm(entities):
-        qid = self._query_wikidata(entity, entity_type)  # Your existing query function
-        if qid:
-            qid_map[entity] = qid
-    return qid_map
+    def _process_entities(self, row: dict) -> pd.Series:
+        """
+        Processes entities related to sRNA and target genes from a given row of data.
 
+        Parameters:
+        - row (dict): A dictionary containing 'sRNA Entities' and 'TargetGene Entities' as keys.
 
-def _process_entities(self, row: dict) -> pd.Series:
-    """
-    Processes entities related to sRNA and target genes from a given row of data.
+        Returns:
+        - pd.Series: A pandas Series object with two elements: lists of sRNA and target gene QIDs,
+          indexed by 'sRNA_QID' and 'targetGene_QID'.
+        """
+        # Process 'sRNA Entities'
+        srna_qids = [self._query_entity_for_qid(entity, 'srna') for entity in row['sRNA Entities']]
 
-    Parameters:
-    - row (dict): A dictionary containing 'sRNA Entities' and 'TargetGene Entities' as keys.
+        # Process 'targetGene Entities'
+        gene_qids = [self._query_entity_for_qid(entity, 'gene') for entity in row['TargetGene Entities']]
 
-    Returns:
-    - pd.Series: A pandas Series object with two elements: lists of sRNA and target gene QIDs,
-      indexed by 'sRNA_QID' and 'targetGene_QID'.
-    """
-    # Process 'sRNA Entities'
-    srna_qids = [self._query_entity_for_qid(entity, 'srna') for entity in row['sRNA Entities']]
+        return pd.Series([srna_qids, gene_qids])
 
-    # Process 'targetGene Entities'
-    gene_qids = [self._query_entity_for_qid(entity, 'gene') for entity in row['TargetGene Entities']]
+    @staticmethod
+    def _query_wikidata(entity_name: str, entity_type: str, retries: int = 5, delay: int = 5) -> Optional[str]:
+        """
+        Performs a query against Wikidata to retrieve the QID (Wikidata item ID) associated with a given entity name and type.
+        This function constructs SPARQL queries tailored to the entity type (e.g., sRNA or gene) and attempts to match the entity
+        name with items in Wikidata. It employs a retry mechanism to handle transient network errors or query rate limits.
 
-    return pd.Series([srna_qids, gene_qids])
+        The function differentiates between entity types to construct specific queries that optimize the chances of accurately
+        matching the entity name with the correct Wikidata item. It filters the results to include only those items that are relevant
+        to the specified entity type, such as ensuring that sRNA entities are matched with non-coding RNA items in Wikidata and that
+        gene entities are associated with protein-coding genes. Further it checks, that entities belong to a bacteria stem, by checking
+        for the description "bacterial strain" in the description of the entity linked in the property "foundInTaxon".
 
+        In the event of a request failure or a response indicating too many requests (HTTP 429 error), the function waits for a specified
+        delay before retrying the query. This process is repeated up to a maximum number of retries specified by the caller.
 
-@staticmethod
-def _query_wikidata(entity_name: str, entity_type: str, retries: int = 5, delay: int = 5) -> Optional[str]:
-    """
-    Performs a query against Wikidata to retrieve the QID (Wikidata item ID) associated with a given entity name and type.
-    This function constructs SPARQL queries tailored to the entity type (e.g., sRNA or gene) and attempts to match the entity
-    name with items in Wikidata. It employs a retry mechanism to handle transient network errors or query rate limits.
+        Parameters:
+        - entity_name (str): The name of the entity to query.
+        - entity_type (str): The type of the entity (e.g., 'srna' or 'gene').
+        - retries (int): The number of retry attempts in case of query failure.
+        - delay (int): The delay in seconds before retrying after a failure.
 
-    The function differentiates between entity types to construct specific queries that optimize the chances of accurately
-    matching the entity name with the correct Wikidata item. It filters the results to include only those items that are relevant
-    to the specified entity type, such as ensuring that sRNA entities are matched with non-coding RNA items in Wikidata and that
-    gene entities are associated with protein-coding genes. Further it checks, that entities belong to a bacteria stem, by checking
-    for the description "bacterial stem" in the description of the entity linked in the property "foundInTaxon".
+        Returns:
+        - Optional[str]: The QID of the entity if found; otherwise, None.
+        """
+        for _ in range(retries):
+            try:
+                endpoint_url = "https://query.wikidata.org/sparql"
+                sparql = SPARQLWrapper(endpoint_url)
 
-    In the event of a request failure or a response indicating too many requests (HTTP 429 error), the function waits for a specified
-    delay before retrying the query. This process is repeated up to a maximum number of retries specified by the caller.
-
-    Parameters:
-    - entity_name (str): The name of the entity to query.
-    - entity_type (str): The type of the entity (e.g., 'srna' or 'gene').
-    - retries (int): The number of retry attempts in case of query failure.
-    - delay (int): The delay in seconds before retrying after a failure.
-
-    Returns:
-    - Optional[str]: The QID of the entity if found; otherwise, None.
-    """
-    for attempt in range(retries):
-        try:
-            endpoint_url = "https://query.wikidata.org/sparql"
-            sparql = SPARQLWrapper(endpoint_url)
-
-            if 'srna' in entity_type.lower():
-                query = f"""SELECT * WHERE {{
+                if 'srna' in entity_type.lower():
+                    query = f"""SELECT * WHERE {{
                       SERVICE wikibase:mwapi {{
                           bd:serviceParam wikibase:api "EntitySearch" .
                           bd:serviceParam wikibase:endpoint "www.wikidata.org" .
@@ -732,8 +726,8 @@ def _query_wikidata(entity_name: str, entity_type: str, retries: int = 5, delay:
                       FILTER(LANG(?description) = "en" && CONTAINS(LCASE(?description), "non-coding rna"))
                       FILTER(CONTAINS(LCASE(?foundInTaxonDescription), "bacterial strain"))
                     }} ORDER BY ASC(?num) LIMIT 1"""
-            elif 'gene' in entity_type.lower():
-                query = f"""SELECT * WHERE {{
+                elif 'gene' in entity_type.lower():
+                    query = f"""SELECT * WHERE {{
                       SERVICE wikibase:mwapi {{
                           bd:serviceParam wikibase:api "EntitySearch" .
                           bd:serviceParam wikibase:endpoint "www.wikidata.org" .
@@ -749,139 +743,138 @@ def _query_wikidata(entity_name: str, entity_type: str, retries: int = 5, delay:
                       FILTER(LANG(?description) = "en" && CONTAINS(LCASE(?description), "protein"))
                       FILTER(CONTAINS(LCASE(?foundInTaxonDescription), "bacterial strain"))
                     }} ORDER BY ASC(?num) LIMIT 1"""
-            else:
-                return "Invalid entity type specified."
+                else:
+                    return "Invalid entity type specified."
 
-            sparql.setQuery(query)
-            sparql.setReturnFormat(JSON)
+                sparql.setQuery(query)
+                sparql.setReturnFormat(JSON)
 
-            results = sparql.query().convert()
-            if results['results']['bindings']:
-                time.sleep(1)
-                return results['results']['bindings'][0]['item']['value'].split('/')[-1]
-            else:
+                results = sparql.query().convert()
+                if results['results']['bindings']:
+                    time.sleep(1)
+                    return results['results']['bindings'][0]['item']['value'].split('/')[-1]
+                else:
+                    return None
+            except HTTPError as e:
+                if e.code == 429:
+                    print(f"HTTP Error 429: Too Many Requests. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+
+                else:
+                    print(f"HTTP error: {e}")
+                    return None
+            except Exception as e:
+                print(f"Error querying Wikidata: {e}")
                 return None
-        except HTTPError as e:
-            if e.code == 429:
-                print(f"HTTP Error 429: Too Many Requests. Retrying in {delay} seconds...")
-                time.sleep(delay)
+        print("Maximum retries reached. Returning None")
+        return None
 
-            else:
-                print(f"HTTP error: {e}")
-                return None
-        except Exception as e:
-            print(f"Error querying Wikidata: {e}")
-            return None
-    print("Maximum retries reached. Returning None")
-    return None
+    def map_relation_to_wikidata(self):
+        """
+        Map relation types to corresponding Wikidata items.
+        """
+        relation_mapping = {
+            'antisense inhibitor of': 'P3777',
+            'regulates (molecular biology)': ':P128',
+            'activator of': 'P3771'
+        }
+        self.df['relation_prop'] = self.df.relation.progress_apply(lambda x: relation_mapping[x])
 
+    def map_entity_qids_and_filter(self, srna_qid_map: Dict[str, str], gene_qid_map: Dict[str, str]):
+        """
+        Replaces entity names in 'sRNA Entities' and 'TargetGene Entities' with their corresponding QIDs and filters out rows with unresolved QIDs.
 
-def map_entities_to_wikidata(self):
-    """
-    Wrapper function to enrich entities in the DataFrame with Wikidata QIDs.
-    Iterates over each row, queries Wikidata for QIDs based on entity names and types,
-    and updates the DataFrame with the obtained QIDs.
-    """
-    self.df[['sRNA_QIDs', 'TargetGene_QIDs']] = self.df.progress_apply(self._process_entities, axis=1)
+        Parameters:
+        - srna_qid_map (Dict[str, str]): Mapping of sRNA entity names to their QIDs.
+        - gene_qid_map (Dict[str, str]): Mapping of target gene entity names to their QIDs.
+        """
+        # Replace entity names with QIDs
+        self.df['sRNA_QIDs'] = self.df['sRNA Entities'].apply(
+            lambda entities: [srna_qid_map.get(entity) for entity in entities if entity in srna_qid_map])
+        self.df['TargetGene_QIDs'] = self.df['TargetGene Entities'].apply(
+            lambda entities: [gene_qid_map.get(entity) for entity in entities if entity in gene_qid_map])
 
+        # Filter out rows where an entity was not found (i.e., None values in QID lists)
+        self.df = self.df[self.df['sRNA_QIDs'].apply(lambda qids: all(qids)) & self.df['TargetGene_QIDs'].apply(
+            lambda qids: all(qids))]
 
-def map_entity_qids_and_filter(self, srna_qid_map: Dict[str, str], gene_qid_map: Dict[str, str]):
-    """
-    Replaces entity names in 'sRNA Entities' and 'TargetGene Entities' with their corresponding QIDs and filters out rows with unresolved QIDs.
+    def expand_rows(self):
+        """
+        Expand DataFrame rows to create distinct rows for each sRNA and target gene combination.
 
-    Parameters:
-    - srna_qid_map (Dict[str, str]): Mapping of sRNA entity names to their QIDs.
-    - gene_qid_map (Dict[str, str]): Mapping of target gene entity names to their QIDs.
-    """
-    # Replace entity names with QIDs
-    self.df['sRNA_QIDs'] = self.df['sRNA Entities'].apply(
-        lambda entities: [srna_qid_map.get(entity) for entity in entities if entity in srna_qid_map])
-    self.df['TargetGene_QIDs'] = self.df['TargetGene Entities'].apply(
-        lambda entities: [gene_qid_map.get(entity) for entity in entities if entity in gene_qid_map])
+        This method takes the current DataFrame and expands it so that each row represents a unique
+        combination of sRNA and target gene derived from the lists in the 'sRNA Entities', 'sRNA_QIDs',
+        'TargetGene Entities', and 'TargetGene_QIDs' columns. The original rows, which may contain lists
+        of entities and their corresponding QIDs, are transformed into multiple rows where each row
+        contains exactly one sRNA and one target gene along with their respective Wikidata QIDs.
+        """
+        rows = []
+        for _, row in self.df.iterrows():
+            # Create all combinations of sRNA and target gene for the row
+            combinations = product(zip(row['sRNA Entities'], row['sRNA_QIDs']),
+                                   zip(row['TargetGene Entities'], row['TargetGene_QIDs']))
 
-    # Filter out rows where an entity was not found (i.e., None values in QID lists)
-    self.df = self.df[
-        self.df['sRNA_QIDs'].apply(lambda qids: all(qids)) & self.df['TargetGene_QIDs'].apply(lambda qids: all(qids))]
+            for (sRNA, sRNA_QID), (targetGene, targetGene_QID) in combinations:
+                new_row = row.to_dict()
+                new_row['sRNA Entities'] = sRNA
+                new_row['TargetGene Entities'] = targetGene
+                new_row['sRNA_QIDs'] = sRNA_QID
+                new_row['TargetGene_QIDs'] = targetGene_QID
+                rows.append(new_row)
 
+        self.df = pd.DataFrame(rows)
 
-def expand_rows(self):
-    """
-    Expand DataFrame rows to create distinct rows for each sRNA and target gene combination.
+    def process(self):
+        """
+        Orchestrate the full regulation statement processing pipeline.
 
-    This method takes the current DataFrame and expands it so that each row represents a unique
-    combination of sRNA and target gene derived from the lists in the 'sRNA Entities', 'sRNA_QIDs',
-    'TargetGene Entities', and 'TargetGene_QIDs' columns. The original rows, which may contain lists
-    of entities and their corresponding QIDs, are transformed into multiple rows where each row
-    contains exactly one sRNA and one target gene along with their respective Wikidata QIDs.
-    """
-    rows = []
-    for _, row in self.df.iterrows():
-        # Create all combinations of sRNA and target gene for the row
-        combinations = product(zip(row['sRNA Entities'], row['sRNA_QIDs']),
-                               zip(row['TargetGene Entities'], row['TargetGene_QIDs']))
+        This method coordinates the sequence of processing steps applied to regulation statements,
+        including text preprocessing, relation classification, entity prediction using BioBERT and SciSpacy,
+        post-processing of predictions, merging predictions, mapping entities and relations to Wikidata, and
+        expanding rows for unique sRNA - target gene combinations.
+        """
+        self.preprocess_texts()
+        print(f'Found a total of {self.df.shape[0]} unique sentences.')
+        self.classify_relations()
+        self.df = self.df[self.df['relation'] != 'none']
+        print(f'Found the following relations:')
+        print(self.df.relation.value_counts())
 
-        for (sRNA, sRNA_QID), (targetGene, targetGene_QID) in combinations:
-            new_row = row.to_dict()
-            new_row['sRNA Entities'] = sRNA
-            new_row['TargetGene Entities'] = targetGene
-            new_row['sRNA_QIDs'] = sRNA_QID
-            new_row['TargetGene_QIDs'] = targetGene_QID
-            rows.append(new_row)
+        print('Extracting NER...')
+        # This is a simplified example; you might need to adapt it based on your specific needs and model interfaces
+        self.df['biobert_entities'] = self.df['text_prep'].progress_apply(self._biobert_predict)
+        self.df['scispacy_entities'] = self.df['text_prep'].progress_apply(self._scispacy_predict)
 
-    self.df = pd.DataFrame(rows)
+        print('Combining Model predictions...')
+        self.df['combined_entities'] = self.merge_predictions_with_priority(self.df['biobert_entities'].to_list(),
+                                                                            self.df['scispacy_entities'].to_list())
+        self.df = self.df[self.df['combined_entities'].apply(lambda x: len(x) > 0)]
 
+        self.df = self.df.reset_index()
+        self.separate_entities()
+        self.df = self.df[
+            (self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (self.df['TargetGene Entities'].apply(lambda x:
+                                                                                                           len(x) > 0))].reset_index(
+            drop=True)
+        self.df = self.df[self.df.apply(self.filter_cross_listed_entities, axis=1)]
+        self.df['sRNA Entities'] = self.df['sRNA Entities'].apply(self.clean_entities)
+        self.df['TargetGene Entities'] = self.df['TargetGene Entities'].apply(self.clean_entities)
+        self.df = self.df[
+            (self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (self.df['TargetGene Entities'].apply(lambda x:
+                                                                                                           len(x) > 0))].reset_index(
+            drop=True)
 
-def process(self):
-    """
-    Orchestrate the full regulation statement processing pipeline.
+        print('Performing Quality Check with Wikidata.')
+        unique_srnas, unique_genes = self.generate_unique_entity_lists()
+        srna_qid_map = self.query_entities_for_qids(unique_srnas, 'srna')
+        gene_qid_map = self.query_entities_for_qids(unique_genes, 'gene')
+        self.map_entity_qids_and_filter(srna_qid_map, gene_qid_map)
+        self.map_relation_to_wikidata()
 
-    This method coordinates the sequence of processing steps applied to regulation statements,
-    including text preprocessing, relation classification, entity prediction using BioBERT and SciSpacy,
-    post-processing of predictions, merging predictions, mapping entities and relations to Wikidata, and
-    expanding rows for unique sRNA - target gene combinations.
-    """
-    self.preprocess_texts()
-    print(f'Found a total of {self.df.shape[0]} unique sentences.')
-    self.classify_relations()
-    self.df = self.df[self.df['relation'] != 'none']
-    print(f'Found the following relations:')
-    print(self.df.relation.value_counts())
-
-    print('Extracting NER...')
-    # This is a simplified example; you might need to adapt it based on your specific needs and model interfaces
-    self.df['biobert_entities'] = self.df['text_prep'].progress_apply(self._biobert_predict)
-    self.df['scispacy_entities'] = self.df['text_prep'].progress_apply(self._scispacy_predict)
-
-    print('Combining Model predictions...')
-    self.df['combined_entities'] = self.merge_predictions_with_priority(self.df['biobert_entities'].to_list(),
-                                                                        self.df['scispacy_entities'].to_list())
-    self.df = self.df[self.df['combined_entities'].apply(lambda x: len(x) > 0)]
-
-    self.df = self.df.reset_index()
-    self.separate_entities()
-    self.df = self.df[
-        (self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (self.df['TargetGene Entities'].apply(lambda x:
-                                                                                                       len(x) > 0))].reset_index(
-        drop=True)
-    self.df = self.df[self.df.apply(self.filter_cross_listed_entities, axis=1)]
-    self.df['sRNA Entities'] = self.df['sRNA Entities'].apply(self.clean_entities)
-    self.df['TargetGene Entities'] = self.df['TargetGene Entities'].apply(self.clean_entities)
-    self.df = self.df[
-        (self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (self.df['TargetGene Entities'].apply(lambda x:
-                                                                                                       len(x) > 0))].reset_index(
-        drop=True)
-
-    print('Performing Quality Check with Wikidata.')
-    unique_srnas, unique_genes = self.generate_unique_entity_lists()
-    srna_qid_map = self.query_entities_for_qids(unique_srnas, 'srna')
-    gene_qid_map = self.query_entities_for_qids(unique_genes, 'gene')
-    self.map_entity_qids_and_filter(srna_qid_map, gene_qid_map)
-    self.map_relation_to_wikidata()
-
-    self.df = self.df.apply(self._refine_entities, axis=1).dropna().reset_index(drop=True)
-    self.df = self.df[(self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (
-        self.df['TargetGene Entities'].apply(lambda x: len(x) > 0))].reset_index(drop=True)
-    self.expand_rows()
+        self.df = self.df.apply(self._refine_entities, axis=1).dropna().reset_index(drop=True)
+        self.df = self.df[(self.df['sRNA Entities'].apply(lambda x: len(x) > 0)) & (
+            self.df['TargetGene Entities'].apply(lambda x: len(x) > 0))].reset_index(drop=True)
+        self.expand_rows()
 
 
 class RDFCreator:
@@ -921,7 +914,6 @@ class RDFCreator:
             # Create URIs for sRNA, target gene, and the regulation relation type
             srna_uri = URIRef(self.WD[row['sRNA_QIDs']])
             targetgene_uri = URIRef(self.WD[row['TargetGene_QIDs']])
-            relation_uri = URIRef(row["relation_prop"])
 
             # Add triples for the regulation relationship, regulated entity, regulator, and target gene
             self.g.add((statement_uri, RDF.type, self.EX.RegulationStatement))
