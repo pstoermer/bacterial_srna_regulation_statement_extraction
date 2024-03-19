@@ -1,0 +1,5 @@
+model_paths:
+  relation_classifier: "/data/03_models/relation_classifier/"
+  scispacy: "/data/03_models/finetuned/scispacy/finetuned_scispacy_ner/"
+  biobert: "/data/03_models/finetuned/biobert/finetuned_biobert_ner/"
+  id_to_label: "/data/02_training_data/id_to_label.json"
