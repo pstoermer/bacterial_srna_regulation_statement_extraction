@@ -86,7 +86,6 @@ def main():
     preprocessor = TextProcessor()
     df = preprocessor.preprocess_texts(df)
 
-    df = df.iloc[:2000]
     # Classify relations
     relation_classifier = RelationClassifier(model_path=config_manager.get('relation_classifier'))
     df['relation_name'] = df.text_prep.apply(relation_classifier.classify)
